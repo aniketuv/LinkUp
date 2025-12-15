@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>LinkUp // GenZ</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+    <script>
+        document.addEventListener('contextmenu', (e) => e.preventDefault());
+        document.onkeydown = (e) => {
+            if (e.keyCode === 123 || (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74 || e.keyCode === 67)) || (e.ctrlKey && e.keyCode === 85)) {
+                return false;
+            }
+        };
+    </script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['"Plus Jakarta Sans"', 'sans-serif'] },
+                    colors: {
+                        dark: '#050505',
+                        surface: '#121212',
+                        glass: 'rgba(30, 30, 30, 0.6)',
+                        primary: 'var(--theme-color)',
+                        primaryDim: 'var(--theme-dim)'
+                    },
+                    animation: {
+                        'pop-in': 'popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+                    },
+                    keyframes: {
+                        popIn: { '0%': { opacity: 0, transform: 'scale(0.9) translateY(10px)' }, '100%': { opacity: 1, transform: 'scale(1) translateY(0)' } }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        :root {
+            --theme-color: #a855f7; 
+            --theme-dim: rgba(168, 85, 247, 0.2);
+        }
+
+        body { 
+            background-color: #000; color: #fff; height: 100dvh; overflow: hidden; 
+            -webkit-user-select: none; user-select: none; 
+        }
+        
+        input { -webkit-user-select: auto; user-select: auto; }
+        ::-webkit-scrollbar { width: 0px; background: transparent; }
+        
+        .glass-panel {
+            background: var(--glass);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .toggle-checkbox:checked { right: 0; border-color: var(--theme-color); }
+        .toggle-checkbox:checked + .toggle-label { background-color: var(--theme-color); }
+
+        /* Social Link Hover Effect */
+        .social-link:hover { transform: translateY(-3px); color: var(--theme-color); }
+    </style>
+</head>
+<body class="flex justify-center bg-black">
+
+    <div class="w-full max-w-md h-full bg-dark flex flex-col relative shadow-2xl sm:border-x border-[#222]">
+
+        <header class="glass-panel h-20 px-6 flex items-center justify-between z-20 absolute top-0 w-full rounded-b-3xl">
+            <div class="flex items-center gap-4">
+                <div class="relative">
+                    <div id="status-indicator" class="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_10px_red] transition-colors duration-500"></div>
+                    <div id="status-ping" class="absolute inset-0 w-3 h-3 rounded-full bg-red-500 animate-ping opacity-75 hidden"></div>
+                </div>
+                <div>
+                    <h1 class="font-extrabold text-xl tracking-tight">LinkUp<span class="text-primary">.io</span></h1>
+                    <p class="text-[10px] font-bold text-gray-500 tracking-wider uppercase">FREQ: <span id="header-freq">...</span></p>
+                </div>
+            </div>
+            
+            <button onclick="openSettings()" class="w-10 h-10 rounded-full bg-surface border border-white/10 flex items-center justify-center hover:bg-white/10 transition active:scale-95">
+                <i class="fa-solid fa-sliders text-gray-300"></i>
+            </button>
+        </header>
+
+        <main id="chat-feed" class="flex-1 overflow-y-auto pt-24 pb-24 px-4 space-y-4">
+            <div class="flex justify-center mt-4 opacity-50">
+                <span class="text-[10px] bg-white/5 px-3 py-1 rounded-full border border-white/5">Messages are end-to-end encrypted</span>
+            </div>
+        </main>
+
+        <div class="absolute bottom-0 w-full p-4 bg-gradient-to-t from-black via-black to-transparent z-20">
+            <div class="glass-panel p-1.5 rounded-[2rem] flex items-center gap-2 shadow-2xl">
+                <input id="msg-input" type="text" placeholder="Send a vibe..." 
+                    class="flex-1 bg-transparent border-none text-white px-5 py-3 outline-none placeholder-gray-500 font-medium"
+                    onkeypress="handleKey(event)" disabled>
+                
+                <button id="send-btn" onclick="sendMsg()" disabled
+                    class="w-12 h-12 rounded-full bg-primary text-black flex items-center justify-center font-bold text-lg shadow-lg hover:brightness-110 active:scale-90 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i class="fa-solid fa-arrow-up rotate-45"></i>
+                </button>
+            </div>
+        </div>
+
+        <div id="settings-modal" class="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm hidden opacity-0 transition-opacity duration-300 flex items-end sm:items-center justify-center">
+            
+            <div id="settings-content" class="bg-[#0a0a0a] w-full sm:w-[90%] sm:rounded-3xl rounded-t-[2.5rem] p-6 border border-white/10 shadow-2xl transform translate-y-full transition-transform duration-300 max-h-[90vh] overflow-y-auto flex flex-col">
+                
+                <div class="w-12 h-1.5 bg-gray-800 rounded-full mx-auto mb-6 shrink-0"></div>
+
+                <h2 class="text-2xl font-bold mb-6 flex items-center gap-2 shrink-0">Settings</h2>
+
+                <div class="overflow-y-auto pr-2 mb-4 space-y-8 flex-1">
+                    
+                    <div class="space-y-4">
+                        <label class="text-xs font-bold text-gray-500 uppercase ml-2">Identity</label>
+                        <div class="bg-surface p-4 rounded-2xl border border-white/5 flex items-center gap-4">
+                            <div id="avatar-preview" class="w-12 h-12 rounded-full bg-gray-700 bg-cover"></div>
+                            <div class="flex-1">
+                                <input id="username-input" type="text" placeholder="Enter Codename" 
+                                    class="w-full bg-transparent text-lg font-bold outline-none text-white border-b border-transparent focus:border-primary transition">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <label class="text-xs font-bold text-gray-500 uppercase ml-2">Theme</label>
+                        <div class="grid grid-cols-5 gap-3">
+                            <button onclick="setTheme('#a855f7')" class="h-10 rounded-xl bg-purple-500 ring-offset-black focus:ring-2 focus:ring-white"></button>
+                            <button onclick="setTheme('#3b82f6')" class="h-10 rounded-xl bg-blue-500 ring-offset-black focus:ring-2 focus:ring-white"></button>
+                            <button onclick="setTheme('#22c55e')" class="h-10 rounded-xl bg-green-500 ring-offset-black focus:ring-2 focus:ring-white"></button>
+                            <button onclick="setTheme('#f97316')" class="h-10 rounded-xl bg-orange-500 ring-offset-black focus:ring-2 focus:ring-white"></button>
+                            <button onclick="setTheme('#ec4899')" class="h-10 rounded-xl bg-pink-500 ring-offset-black focus:ring-2 focus:ring-white"></button>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <label class="text-xs font-bold text-gray-500 uppercase ml-2">Channel Freq</label>
+                        <div class="bg-surface p-1 rounded-2xl border border-white/5 flex">
+                            <input id="freq-input" type="number" value="105.5" class="bg-transparent w-full p-3 font-mono font-bold outline-none text-center">
+                        </div>
+                    </div>
+
+                    <div class="flex justify-between items-center bg-surface p-4 rounded-2xl border border-white/5">
+                        <span class="font-bold text-sm">Sounds</span>
+                        <div class="relative inline-block w-12 mr-2 align-middle select-none">
+                            <input type="checkbox" id="sound-toggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer transition-all duration-300 left-0 checked:left-6"/>
+                            <label for="sound-toggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-700 cursor-pointer"></label>
+                        </div>
+                    </div>
+
+                </div>
+
+                <div class="shrink-0 space-y-3">
+                    <button onclick="saveSettings()" class="w-full bg-primary text-black font-bold text-lg py-4 rounded-2xl shadow-[0_0_20px_var(--theme-dim)] active:scale-95 transition">Apply Changes</button>
+                    <button onclick="closeSettings()" class="w-full text-gray-500 font-bold py-3">Cancel</button>
+                </div>
+
+                <div class="mt-6 pt-6 border-t border-white/10 text-center shrink-0">
+                    <p class="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-3">Developed By Aniket</p>
+                    <div class="flex justify-center gap-6">
+                        <a href="https://www.instagram.com/aniketuv?igsh=aHoxOTZmdWx3ZzBo" target="_blank" class="social-link text-gray-400 text-2xl transition duration-300">
+                            <i class="fa-brands fa-instagram"></i>
+                        </a>
+                        <a href="https://www.linkedin.com/in/aniketuv?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=android_app" target="_blank" class="social-link text-gray-400 text-2xl transition duration-300">
+                            <i class="fa-brands fa-linkedin"></i>
+                        </a>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- CONFIG ---
+        const SERVERS = [
+            { host: "broker.emqx.io", port: 8084, path: "/mqtt" },
+            { host: "broker.hivemq.com", port: 8884, path: "/mqtt" },
+            { host: "test.mosquitto.org", port: 8081, path: "" }
+        ];
+
+        let appState = {
+            username: localStorage.getItem("user_name") || "Guest-" + Math.floor(Math.random()*1000),
+            freq: localStorage.getItem("user_freq") || "105.5",
+            theme: localStorage.getItem("user_theme") || "#a855f7",
+            sound: localStorage.getItem("user_sound") !== "false",
+            serverIndex: 0,
+            isConnected: false
+        };
+
+        let client = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            applyTheme(appState.theme);
+            document.getElementById('username-input').value = appState.username;
+            document.getElementById('freq-input').value = appState.freq;
+            document.getElementById('sound-toggle').checked = appState.sound;
+            
+            // --- FIX: Update Header Frequency on Load ---
+            document.getElementById('header-freq').innerText = appState.freq;
+            
+            updateAvatarPreview();
+            connect();
+        });
+
+        // --- NETWORK ---
+        function connect() {
+            if(appState.serverIndex >= SERVERS.length) {
+                renderSysMsg("All satellites unreachable.");
+                return;
+            }
+
+            const srv = SERVERS[appState.serverIndex];
+            updateStatus("orange", true);
+
+            const clientId = "genz-" + Math.random().toString(16).substr(2,8);
+            client = new Paho.MQTT.Client(srv.host, srv.port, srv.path, clientId);
+
+            client.onConnectionLost = (obj) => {
+                appState.isConnected = false;
+                updateStatus("red", false);
+                toggleInput(false);
+                if (obj.errorCode !== 0) {
+                    appState.serverIndex++;
+                    setTimeout(connect, 1000);
+                }
+            };
+
+            client.onMessageArrived = (msg) => {
+                try {
+                    const data = JSON.parse(msg.payloadString);
+                    if(data.senderId !== clientId) {
+                        renderMessage(data, false);
+                        playSound();
+                    }
+                } catch(e) {}
+            };
+
+            client.connect({
+                useSSL: true,
+                timeout: 5,
+                onSuccess: () => {
+                    appState.isConnected = true;
+                    updateStatus("green", false);
+                    toggleInput(true);
+                    subscribe();
+                    renderSysMsg(`Connected to ${appState.freq} MHz`);
+                },
+                onFailure: () => {
+                    appState.serverIndex++;
+                    connect();
+                }
+            });
+        }
+
+        function subscribe() {
+            if(!client || !appState.isConnected) return;
+            client.subscribe(`linkup-v5/${appState.freq}`);
+        }
+
+        function sendMsg() {
+            const input = document.getElementById('msg-input');
+            const text = input.value.trim();
+            if(!text || !appState.isConnected) return;
+
+            const payload = {
+                text: text,
+                user: appState.username,
+                senderId: client.clientId,
+                ts: Date.now(),
+                theme: appState.theme
+            };
+
+            const msg = new Paho.MQTT.Message(JSON.stringify(payload));
+            msg.destinationName = `linkup-v5/${appState.freq}`;
+            client.send(msg);
+
+            renderMessage(payload, true);
+            input.value = "";
+            input.focus();
+        }
+
+        function renderMessage(data, isMe) {
+            const feed = document.getElementById('chat-feed');
+            const time = new Date(data.ts).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            
+            const bubbleColor = isMe ? 'var(--theme-color)' : '#1e1e1e';
+            const textColor = isMe ? '#000' : '#fff';
+            const align = isMe ? 'ml-auto' : 'mr-auto';
+            const radius = isMe ? 'rounded-tr-sm' : 'rounded-tl-sm';
+            
+            const html = `
+                <div class="flex flex-col max-w-[85%] ${align} animate-pop-in mb-2">
+                    ${!isMe ? `<span class="text-[10px] text-gray-500 mb-1 ml-1 font-bold">${data.user}</span>` : ''}
+                    <div class="px-5 py-3 rounded-3xl ${radius} shadow-lg text-sm font-medium leading-relaxed break-words relative"
+                         style="background: ${bubbleColor}; color: ${textColor};">
+                        ${escapeHtml(data.text)}
+                        <span class="text-[9px] opacity-60 absolute bottom-1 right-3 mt-1 block">${time}</span>
+                    </div>
+                </div>
+            `;
+            feed.insertAdjacentHTML('beforeend', html);
+            feed.scrollTop = feed.scrollHeight;
+        }
+
+        function renderSysMsg(txt) {
+            const feed = document.getElementById('chat-feed');
+            feed.insertAdjacentHTML('beforeend', `<div class="flex justify-center my-2 animate-pop-in"><span class="text-[10px] font-bold uppercase tracking-wider text-gray-600 bg-white/5 px-2 py-1 rounded">${txt}</span></div>`);
+            feed.scrollTop = feed.scrollHeight;
+        }
+
+        // --- UI & LOGIC ---
+        function openSettings() {
+            const modal = document.getElementById('settings-modal');
+            const content = document.getElementById('settings-content');
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                content.classList.remove('translate-y-full');
+            }, 10);
+            updateAvatarPreview();
+        }
+
+        function closeSettings() {
+            const modal = document.getElementById('settings-modal');
+            const content = document.getElementById('settings-content');
+            modal.classList.add('opacity-0');
+            content.classList.add('translate-y-full');
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        }
+
+        function saveSettings() {
+            const newName = document.getElementById('username-input').value.trim();
+            const newFreq = document.getElementById('freq-input').value.trim();
+            const newSound = document.getElementById('sound-toggle').checked;
+
+            if(newName) appState.username = newName;
+            appState.sound = newSound;
+
+            if(newFreq && newFreq !== appState.freq) {
+                if(appState.isConnected) client.unsubscribe(`linkup-v5/${appState.freq}`);
+                appState.freq = newFreq;
+                
+                // --- FIX: Update Header Frequency Visuals ---
+                document.getElementById('header-freq').innerText = newFreq;
+                
+                document.getElementById('chat-feed').innerHTML = '';
+                subscribe();
+                renderSysMsg(`Switched to ${newFreq}`);
+            }
+
+            localStorage.setItem("user_name", appState.username);
+            localStorage.setItem("user_freq", appState.freq);
+            localStorage.setItem("user_theme", appState.theme);
+            localStorage.setItem("user_sound", appState.sound);
+            closeSettings();
+        }
+
+        function setTheme(color) {
+            appState.theme = color;
+            applyTheme(color);
+        }
+
+        function applyTheme(color) {
+            document.documentElement.style.setProperty('--theme-color', color);
+            const r = parseInt(color.substr(1,2), 16);
+            const g = parseInt(color.substr(3,2), 16);
+            const b = parseInt(color.substr(5,2), 16);
+            document.documentElement.style.setProperty('--theme-dim', `rgba(${r},${g},${b},0.3)`);
+        }
+
+        function updateStatus(color, ping) {
+            const el = document.getElementById('status-indicator');
+            const anim = document.getElementById('status-ping');
+            const map = { 'red': 'bg-red-500', 'orange': 'bg-orange-500', 'green': 'bg-green-500' };
+            el.className = `w-3 h-3 rounded-full shadow-[0_0_15px_${color}] transition-all duration-500 ${map[color]}`;
+            anim.className = `absolute inset-0 w-3 h-3 rounded-full opacity-75 ${map[color]} ${ping ? 'animate-ping' : 'hidden'}`;
+        }
+
+        function updateAvatarPreview() {
+            const name = document.getElementById('username-input').value || appState.username;
+            const url = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&color=fff&size=128&bold=true`;
+            document.getElementById('avatar-preview').style.backgroundImage = `url('${url}')`;
+        }
+        
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound() {
+            if(!appState.sound) return;
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1);
+            gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.1);
+        }
+
+        function handleKey(e) { if(e.key === 'Enter') sendMsg(); }
+        function toggleInput(enabled) {
+            document.getElementById('msg-input').disabled = !enabled;
+            document.getElementById('send-btn').disabled = !enabled;
+        }
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        document.getElementById('username-input').addEventListener('input', updateAvatarPreview);
+    </script>
+</body>
+</html>
